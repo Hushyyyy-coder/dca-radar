@@ -91,6 +91,16 @@ def telegram(msg):
 RELEVANTES = {"T1","T2","T3","STOP"}
 
 def main():
+    # MODO PRUEBA: si la variable TEST vale "1", manda un mensaje de test
+    # y termina. Sirve para comprobar que Telegram está bien conectado.
+    if os.environ.get("TEST") == "1":
+        telegram("✅ *Prueba de Crypto DCA Radar*\n\n"
+                 "Si ves este mensaje, el bot está bien conectado. "
+                 "A partir de ahora te avisaré cuando un activo entre "
+                 "en zona de compra o rompa su invalidación.")
+        print("Mensaje de prueba enviado.")
+        return
+
     px = precios()
     if not px:
         print("Sin precios, salgo."); return
