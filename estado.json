@@ -1,15 +1,15 @@
 {
-  "BTC": "T1",
+  "BTC": "ESPERAR",
   "ETH": "T1",
   "SOL": "ESPERAR",
   "HYPE": "ESPERAR",
   "TAO": "ESPERAR",
   "LINK": "ESPERAR",
-  "ONDO": "T1",
+  "ONDO": "ESPERAR",
   "QNT": "ESPERAR",
-  "RENDER": "T1",
+  "RENDER": "ESPERAR",
   "NEAR": "T1",
-  "AVAX": "ESPERAR",
+  "AVAX": "T1",
   "ADA": "ESPERAR",
   "DOGE": "ESPERAR"
 }
