@@ -148,10 +148,64 @@ def color_senal(v):
     return ""
 
 st.subheader("Resumen (de peor a mejor fuerza relativa vs BTC)")
-st.dataframe(
-    df.style.map(color_senal, subset=["Señal hoy"]),
-    use_container_width=True, height=520,
+
+# Selector de vista: el usuario elige PC (tabla) o Móvil (tarjetas).
+# Por defecto Móvil, que es lo más cómodo en el teléfono.
+vista = st.radio(
+    "Vista:",
+    ["📱 Móvil (tarjetas)", "💻 PC (tabla completa)"],
+    horizontal=True,
+    label_visibility="collapsed",
 )
+
+if "PC" in vista:
+    # ---- Vista de tabla completa (PC) ----
+    st.dataframe(
+        df.style.map(color_senal, subset=["Señal hoy"]),
+        use_container_width=True, height=520,
+    )
+else:
+    # ---- Vista de tarjetas (Móvil) ----
+    # Cada activo es una tarjeta apilada: precio + señal + % vs ATH de un
+    # vistazo, y el detalle (tramos e invalidación) se despliega al tocar.
+    def color_fondo(senal):
+        if "STOP" in senal: return "#5a1e1e"
+        if "T3" in senal or "T2" in senal: return "#1e4620"
+        if "T1" in senal: return "#5a4d1e"
+        return "#2b2b2b"
+
+    for _, r in df.iterrows():
+        bg = color_fondo(r["Señal hoy"])
+        # Cabecera de la tarjeta (siempre visible)
+        st.markdown(
+            f"""
+            <div style="background:{bg};border-radius:12px;padding:12px 16px;
+                        margin-bottom:6px;color:#fff;">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:1.3em;font-weight:700;">{r['Ticker']}</span>
+                <span style="font-size:0.85em;opacity:0.85;">{r['Categoría']}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-top:6px;">
+                <span style="font-size:1.05em;">💲 {r['Precio']:.6g}</span>
+                <span style="font-size:0.95em;">📉 {r['% vs ATH']}% vs ATH</span>
+              </div>
+              <div style="margin-top:6px;font-size:1.0em;font-weight:600;">
+                {r['Señal hoy']}
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        # Detalle desplegable al tocar
+        with st.expander(f"Ver detalle de {r['Ticker']}"):
+            st.write(f"**Fuerza relativa vs BTC (7d):** {r['FR vs BTC']}")
+            st.write(f"**Variación 7d:** {r['% 7d']}%")
+            st.write("**Tramos de entrada (DCA):**")
+            st.write(f"- T1: {r['T1']:.6g}")
+            st.write(f"- T2: {r['T2']:.6g}")
+            st.write(f"- T3: {r['T3']:.6g}")
+            st.write(f"**Precio medio si entran los 3:** {r['Precio medio 3T']:.6g}")
+            st.write(f"⚠️ **Invalidación (dejar de promediar):** {r['Invalidación']:.6g}")
 
 # Descargar Excel
 @st.cache_data(ttl=300)
