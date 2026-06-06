@@ -6,10 +6,10 @@
   "TAO": "ESPERAR",
   "LINK": "ESPERAR",
   "ONDO": "T1",
-  "QNT": "T1",
+  "QNT": "ESPERAR",
   "RENDER": "T1",
   "NEAR": "T1",
   "AVAX": "T1",
-  "ADA": "ESPERAR",
-  "DOGE": "ESPERAR"
+  "ADA": "T1",
+  "DOGE": "T1"
 }
