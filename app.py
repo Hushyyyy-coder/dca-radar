@@ -44,13 +44,13 @@ ACTIVOS = [
 ]
 CG = "https://api.coingecko.com/api/v3"
 
-# Acciones vinculadas a BTC (datos vía Stooq, sin API key).
-# Solo se actualizan en horario de mercado USA; fuera de él, último cierre.
+# Acciones vinculadas a BTC, vía sus tokens tokenizados en CoinGecko (sin clave).
+# Cotizan 24/7. MSTRx es líquido; MARAON/RIOTON son ilíquidos (precio orientativo).
 ACCIONES = [
-    # ticker, nombre_stooq, categoria, invalidacion (nivel orientativo)
-    ("MSTR", "mstr", "Accion_BTC", 100),
-    ("MARA", "mara", "Accion_BTC", 8),
-    ("RIOT", "riot", "Accion_BTC", 6),
+    # ticker, coingecko_id, categoria, liquidez ("alta"/"baja")
+    ("MSTR", "microstrategy-xstock",              "Accion_BTC", "alta"),
+    ("MARA", "mara-holdings-ondo-tokenized-stock", "Accion_BTC", "baja"),
+    ("RIOT", "riot-platforms-ondo-tokenized-stock","Accion_BTC", "baja"),
 ]
 
 # ---------------------------------------------------------------
@@ -89,36 +89,34 @@ def market_data():
 import numpy as np
 
 @st.cache_data(ttl=300)
-def stooq_precio(ticker):
-    """Último precio de una acción vía Stooq (CSV, sin clave)."""
-    url = f"https://stooq.com/q/l/?s={ticker}.us&f=sd2t2ohlcv&h&e=csv"
+def cg_precio(coingecko_id):
+    """Último precio de un token (acción tokenizada) vía CoinGecko."""
     try:
-        r = requests.get(url, timeout=20); r.raise_for_status()
-        lineas = r.text.strip().split("\n")
-        if len(lineas) < 2: return None
-        cols = lineas[0].split(","); vals = lineas[1].split(",")
-        d = dict(zip(cols, vals))
-        close = d.get("Close")
-        return float(close) if close not in (None, "", "N/D") else None
+        r = requests.get(
+            f"{CG}/simple/price",
+            params={"ids": coingecko_id, "vs_currencies": "usd"},
+            headers={"User-Agent": "dca-radar"}, timeout=20,
+        )
+        r.raise_for_status()
+        return r.json().get(coingecko_id, {}).get("usd")
     except Exception:
         return None
 
 @st.cache_data(ttl=900)
-def stooq_historico(ticker, dias=120):
-    """Cierres diarios recientes de una acción (para medias y RSI)."""
-    url = f"https://stooq.com/q/d/l/?s={ticker}.us&i=d"
+def cg_historico(coingecko_id, dias=120):
+    """Cierres diarios recientes de un token (para medias y RSI), vía CoinGecko."""
     try:
-        r = requests.get(url, timeout=25); r.raise_for_status()
-        df = pd.read_csv(io_text(r.text))
-        if "Close" not in df.columns or len(df) < 30:
-            return None
-        return df["Close"].tail(dias).tolist()
+        r = requests.get(
+            f"{CG}/coins/{coingecko_id}/market_chart",
+            params={"vs_currency": "usd", "days": dias, "interval": "daily"},
+            headers={"User-Agent": "dca-radar"}, timeout=30,
+        )
+        r.raise_for_status()
+        precios = r.json().get("prices", [])
+        cierres = [p[1] for p in precios if p and len(p) == 2]
+        return cierres if len(cierres) >= 30 else None
     except Exception:
         return None
-
-def io_text(txt):
-    import io as _io
-    return _io.StringIO(txt)
 
 def rsi(closes, period=14):
     if not closes or len(closes) < period + 1: return None
@@ -150,56 +148,6 @@ def senal_sobreextension(rsi_v, dist_v):
     if puntos >= 3: return "🔴 Muy estirado"
     if puntos >= 1: return "🟡 Algo estirado"
     return "⚪ Normal"
-
-# ID del token MSTRx en CoinGecko (versión Solana, la más líquida).
-# Solo MSTR tiene token fiable; MARA/RIOT tokenizados son demasiado ilíquidos.
-TOKEN_SOLANA = {"MSTR": "microstrategy-xstock"}
-
-def _usa_en_horario_verano(fecha):
-    """
-    True si EE.UU. está en horario de verano (DST) en esa fecha.
-    DST USA: del 2º domingo de marzo al 1er domingo de noviembre.
-    """
-    año = fecha.year
-    # 2º domingo de marzo
-    marzo = dt.date(año, 3, 1)
-    primer_dom_marzo = marzo + dt.timedelta(days=(6 - marzo.weekday()) % 7)
-    inicio_dst = primer_dom_marzo + dt.timedelta(days=7)
-    # 1er domingo de noviembre
-    nov = dt.date(año, 11, 1)
-    inicio_nov = nov + dt.timedelta(days=(6 - nov.weekday()) % 7)
-    fin_dst = inicio_nov
-    return inicio_dst <= fecha.date() < fin_dst
-
-def mercado_usa_abierto():
-    """
-    True si la bolsa USA está en sesión regular (9:30–16:00 hora de Nueva York),
-    lunes a viernes. Ajusta automáticamente el horario de verano/invierno:
-    - Verano (DST, NY = UTC-4): sesión 13:30–20:00 UTC
-    - Invierno (NY = UTC-5):    sesión 14:30–21:00 UTC
-    No ajusta festivos de la bolsa (días sueltos al año en que estará mal).
-    """
-    ahora = dt.datetime.utcnow()
-    if ahora.weekday() >= 5:   # sábado=5, domingo=6
-        return False
-    hora_dec = ahora.hour + ahora.minute/60
-    if _usa_en_horario_verano(ahora):
-        return 13.5 <= hora_dec <= 20.0   # verano
-    return 14.5 <= hora_dec <= 21.0       # invierno
-
-@st.cache_data(ttl=300)
-def precio_token_solana(coingecko_id):
-    """Precio del token tokenizado (xStock) vía CoinGecko, sin clave."""
-    try:
-        r = requests.get(
-            f"{CG}/simple/price",
-            params={"ids": coingecko_id, "vs_currencies": "usd"},
-            headers={"User-Agent": "dca-radar"}, timeout=20,
-        )
-        r.raise_for_status()
-        return r.json().get(coingecko_id, {}).get("usd")
-    except Exception:
-        return None
 
 @st.cache_data(ttl=900)
 def fear_greed():
@@ -339,44 +287,21 @@ else:
 # ===============================================================
 st.divider()
 st.subheader("📈 Acciones vinculadas a BTC")
-
-abierto = mercado_usa_abierto()
-if abierto:
-    st.caption("🟢 **Mercado USA abierto.** Precio = acción real (Stooq). "
-               "La señal de sobreextensión es informativa, NO una recomendación de operar.")
-else:
-    st.caption("🔴 **Mercado USA cerrado.** Para MSTR se muestra el precio del token "
-               "MSTRx en Solana (referencia 24/7, vía CoinGecko). Es un proxy on-chain: "
-               "sigue a la acción pero puede desviarse algo por liquidez. "
-               "Para MARA/RIOT, último cierre. Nada de esto es recomendación de operar.")
+st.caption("Precios vía sus **tokens tokenizados** (xStocks) en CoinGecko, que cotizan "
+           "24/7 y siguen a la acción real. MSTRx es líquido y fiable; MARA/RIOT "
+           "tokenizados son ilíquidos, así que su precio es orientativo. "
+           "La señal de sobreextensión es informativa, NO una recomendación de operar.")
 
 filas_acc = []
-for tk, sname, cat, inval in ACCIONES:
-    hist = stooq_historico(sname)
+for tk, cg_id, cat, liquidez in ACCIONES:
+    precio = cg_precio(cg_id)
+    hist = cg_historico(cg_id)
     rsi_v = rsi(hist) if hist else None
     dist_v = dist_media(hist) if hist else None
-
-    # Fuente del precio según horario:
-    # - Mercado abierto -> acción real (Stooq).
-    # - Mercado cerrado -> token Solana si existe (solo MSTR); si no, cierre Stooq.
-    if abierto:
-        precio = stooq_precio(sname)
-        fuente = "Acción (Stooq)"
-    else:
-        cg_id = TOKEN_SOLANA.get(tk)
-        if cg_id:
-            precio = precio_token_solana(cg_id)
-            fuente = "Token MSTRx (Solana)"
-            if precio is None:                  # respaldo si el token falla
-                precio = stooq_precio(sname); fuente = "Último cierre (Stooq)"
-        else:
-            precio = stooq_precio(sname)
-            fuente = "Último cierre (Stooq)"
-
     filas_acc.append({
         "Ticker": tk,
         "Precio": precio,
-        "Fuente": fuente,
+        "Fiabilidad": "✅ Alta" if liquidez == "alta" else "⚠️ Orientativo",
         "RSI(14)": rsi_v,
         "% vs media50": dist_v,
         "Sobreextensión": senal_sobreextension(rsi_v, dist_v),
@@ -398,8 +323,7 @@ if dfa["Precio"].notna().any():
                "los cortos en futuros tienen riesgo de pérdida ilimitada y la decisión es tuya.")
 else:
     st.warning("No se pudieron cargar los precios de las acciones ahora mismo "
-               "(puede ser el horario de mercado o un fallo temporal de Stooq). "
-               "Reintenta en unos minutos.")
+               "(fallo temporal de CoinGecko). Reintenta en unos minutos.")
 
 # Descargar Excel
 @st.cache_data(ttl=300)
