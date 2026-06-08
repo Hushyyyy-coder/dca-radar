@@ -44,6 +44,15 @@ ACTIVOS = [
 ]
 CG = "https://api.coingecko.com/api/v3"
 
+# Acciones vinculadas a BTC (datos vía Stooq, sin API key).
+# Solo se actualizan en horario de mercado USA; fuera de él, último cierre.
+ACCIONES = [
+    # ticker, nombre_stooq, categoria, invalidacion (nivel orientativo)
+    ("MSTR", "mstr", "Accion_BTC", 100),
+    ("MARA", "mara", "Accion_BTC", 8),
+    ("RIOT", "riot", "Accion_BTC", 6),
+]
+
 # ---------------------------------------------------------------
 #  FUNCIONES DE DATOS  (cacheadas 5 min para no saturar la API)
 # ---------------------------------------------------------------
@@ -73,6 +82,105 @@ def market_data():
         except Exception:
             time.sleep(4)
     return out
+
+# ---------------------------------------------------------------
+#  ACCIONES (Stooq, sin API key) + INDICADORES DE SOBREEXTENSIÓN
+# ---------------------------------------------------------------
+import numpy as np
+
+@st.cache_data(ttl=300)
+def stooq_precio(ticker):
+    """Último precio de una acción vía Stooq (CSV, sin clave)."""
+    url = f"https://stooq.com/q/l/?s={ticker}.us&f=sd2t2ohlcv&h&e=csv"
+    try:
+        r = requests.get(url, timeout=20); r.raise_for_status()
+        lineas = r.text.strip().split("\n")
+        if len(lineas) < 2: return None
+        cols = lineas[0].split(","); vals = lineas[1].split(",")
+        d = dict(zip(cols, vals))
+        close = d.get("Close")
+        return float(close) if close not in (None, "", "N/D") else None
+    except Exception:
+        return None
+
+@st.cache_data(ttl=900)
+def stooq_historico(ticker, dias=120):
+    """Cierres diarios recientes de una acción (para medias y RSI)."""
+    url = f"https://stooq.com/q/d/l/?s={ticker}.us&i=d"
+    try:
+        r = requests.get(url, timeout=25); r.raise_for_status()
+        df = pd.read_csv(io_text(r.text))
+        if "Close" not in df.columns or len(df) < 30:
+            return None
+        return df["Close"].tail(dias).tolist()
+    except Exception:
+        return None
+
+def io_text(txt):
+    import io as _io
+    return _io.StringIO(txt)
+
+def rsi(closes, period=14):
+    if not closes or len(closes) < period + 1: return None
+    s = pd.Series(closes)
+    delta = s.diff()
+    gain = delta.clip(lower=0).rolling(period).mean()
+    loss = (-delta.clip(upper=0)).rolling(period).mean()
+    rs = gain / loss.replace(0, np.nan)
+    val = (100 - (100/(1+rs))).iloc[-1]
+    return None if pd.isna(val) else round(float(val), 1)
+
+def dist_media(closes, period=50):
+    if not closes or len(closes) < period: return None
+    s = pd.Series(closes)
+    ma = s.rolling(period).mean().iloc[-1]
+    if pd.isna(ma) or ma == 0: return None
+    return round((s.iloc[-1]/ma - 1)*100, 1)
+
+def senal_sobreextension(rsi_v, dist_v):
+    """
+    Indicador DESCRIPTIVO de cuán estirado al alza está un activo.
+    NO es una recomendación de ponerse corto ni de operar: solo informa.
+    """
+    puntos = 0
+    if rsi_v is not None and rsi_v >= 70: puntos += 1
+    if rsi_v is not None and rsi_v >= 80: puntos += 1
+    if dist_v is not None and dist_v >= 20: puntos += 1
+    if dist_v is not None and dist_v >= 40: puntos += 1
+    if puntos >= 3: return "🔴 Muy estirado"
+    if puntos >= 1: return "🟡 Algo estirado"
+    return "⚪ Normal"
+
+# ID del token MSTRx en CoinGecko (versión Solana, la más líquida).
+# Solo MSTR tiene token fiable; MARA/RIOT tokenizados son demasiado ilíquidos.
+TOKEN_SOLANA = {"MSTR": "microstrategy-xstock"}
+
+def mercado_usa_abierto():
+    """
+    True si la bolsa USA está (aprox.) en sesión regular ahora mismo.
+    Horario NYSE/Nasdaq: 9:30–16:00 ET, lunes a viernes.
+    Lo calculamos en UTC: 14:30–21:00 UTC aprox. (sin ajustar festivos
+    ni el cambio de horario de verano/invierno, es una aproximación).
+    """
+    ahora = dt.datetime.utcnow()
+    if ahora.weekday() >= 5:   # sábado=5, domingo=6
+        return False
+    hora_dec = ahora.hour + ahora.minute/60
+    return 14.5 <= hora_dec <= 21.0
+
+@st.cache_data(ttl=300)
+def precio_token_solana(coingecko_id):
+    """Precio del token tokenizado (xStock) vía CoinGecko, sin clave."""
+    try:
+        r = requests.get(
+            f"{CG}/simple/price",
+            params={"ids": coingecko_id, "vs_currencies": "usd"},
+            headers={"User-Agent": "dca-radar"}, timeout=20,
+        )
+        r.raise_for_status()
+        return r.json().get(coingecko_id, {}).get("usd")
+    except Exception:
+        return None
 
 @st.cache_data(ttl=900)
 def fear_greed():
@@ -207,18 +315,86 @@ else:
             st.write(f"**Precio medio si entran los 3:** {r['Precio medio 3T']:.6g}")
             st.write(f"⚠️ **Invalidación (dejar de promediar):** {r['Invalidación']:.6g}")
 
+# ===============================================================
+#  SECCIÓN: ACCIONES VINCULADAS A BTC (MSTR, MARA, RIOT)
+# ===============================================================
+st.divider()
+st.subheader("📈 Acciones vinculadas a BTC")
+
+abierto = mercado_usa_abierto()
+if abierto:
+    st.caption("🟢 **Mercado USA abierto.** Precio = acción real (Stooq). "
+               "La señal de sobreextensión es informativa, NO una recomendación de operar.")
+else:
+    st.caption("🔴 **Mercado USA cerrado.** Para MSTR se muestra el precio del token "
+               "MSTRx en Solana (referencia 24/7, vía CoinGecko). Es un proxy on-chain: "
+               "sigue a la acción pero puede desviarse algo por liquidez. "
+               "Para MARA/RIOT, último cierre. Nada de esto es recomendación de operar.")
+
+filas_acc = []
+for tk, sname, cat, inval in ACCIONES:
+    hist = stooq_historico(sname)
+    rsi_v = rsi(hist) if hist else None
+    dist_v = dist_media(hist) if hist else None
+
+    # Fuente del precio según horario:
+    # - Mercado abierto -> acción real (Stooq).
+    # - Mercado cerrado -> token Solana si existe (solo MSTR); si no, cierre Stooq.
+    if abierto:
+        precio = stooq_precio(sname)
+        fuente = "Acción (Stooq)"
+    else:
+        cg_id = TOKEN_SOLANA.get(tk)
+        if cg_id:
+            precio = precio_token_solana(cg_id)
+            fuente = "Token MSTRx (Solana)"
+            if precio is None:                  # respaldo si el token falla
+                precio = stooq_precio(sname); fuente = "Último cierre (Stooq)"
+        else:
+            precio = stooq_precio(sname)
+            fuente = "Último cierre (Stooq)"
+
+    filas_acc.append({
+        "Ticker": tk,
+        "Precio": precio,
+        "Fuente": fuente,
+        "RSI(14)": rsi_v,
+        "% vs media50": dist_v,
+        "Sobreextensión": senal_sobreextension(rsi_v, dist_v),
+    })
+
+dfa = pd.DataFrame(filas_acc)
+if dfa["Precio"].notna().any():
+    def color_ext(v):
+        if "Muy" in str(v): return "background-color:#5a1e1e;color:#fff"
+        if "Algo" in str(v): return "background-color:#5a4d1e;color:#fff"
+        return ""
+    st.dataframe(
+        dfa.style.map(color_ext, subset=["Sobreextensión"]),
+        use_container_width=True, hide_index=True,
+    )
+    st.caption("**Cómo leerlo:** 🔴 Muy estirado = precio muy por encima de su media "
+               "y RSI alto (sobrecomprado). 🟡 Algo estirado = una de las dos. "
+               "⚪ Normal. Es contexto objetivo, no una orden de ponerse corto: "
+               "los cortos en futuros tienen riesgo de pérdida ilimitada y la decisión es tuya.")
+else:
+    st.warning("No se pudieron cargar los precios de las acciones ahora mismo "
+               "(puede ser el horario de mercado o un fallo temporal de Stooq). "
+               "Reintenta en unos minutos.")
+
 # Descargar Excel
 @st.cache_data(ttl=300)
-def to_excel(_df):
+def to_excel(_df, _dfa):
     import io
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as xl:
-        _df.to_excel(xl, sheet_name="Plan_DCA", index=False)
+        _df.to_excel(xl, sheet_name="Cripto_DCA", index=False)
+        _dfa.to_excel(xl, sheet_name="Acciones_BTC", index=False)
     return buf.getvalue()
 
 st.download_button(
     "⬇️ Descargar Excel",
-    data=to_excel(df),
+    data=to_excel(df, dfa),
     file_name=f"crypto_dca_radar_{dt.datetime.utcnow():%Y%m%d_%H%M}.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
