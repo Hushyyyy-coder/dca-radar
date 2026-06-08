@@ -155,18 +155,37 @@ def senal_sobreextension(rsi_v, dist_v):
 # Solo MSTR tiene token fiable; MARA/RIOT tokenizados son demasiado ilíquidos.
 TOKEN_SOLANA = {"MSTR": "microstrategy-xstock"}
 
+def _usa_en_horario_verano(fecha):
+    """
+    True si EE.UU. está en horario de verano (DST) en esa fecha.
+    DST USA: del 2º domingo de marzo al 1er domingo de noviembre.
+    """
+    año = fecha.year
+    # 2º domingo de marzo
+    marzo = dt.date(año, 3, 1)
+    primer_dom_marzo = marzo + dt.timedelta(days=(6 - marzo.weekday()) % 7)
+    inicio_dst = primer_dom_marzo + dt.timedelta(days=7)
+    # 1er domingo de noviembre
+    nov = dt.date(año, 11, 1)
+    inicio_nov = nov + dt.timedelta(days=(6 - nov.weekday()) % 7)
+    fin_dst = inicio_nov
+    return inicio_dst <= fecha.date() < fin_dst
+
 def mercado_usa_abierto():
     """
-    True si la bolsa USA está (aprox.) en sesión regular ahora mismo.
-    Horario NYSE/Nasdaq: 9:30–16:00 ET, lunes a viernes.
-    Lo calculamos en UTC: 14:30–21:00 UTC aprox. (sin ajustar festivos
-    ni el cambio de horario de verano/invierno, es una aproximación).
+    True si la bolsa USA está en sesión regular (9:30–16:00 hora de Nueva York),
+    lunes a viernes. Ajusta automáticamente el horario de verano/invierno:
+    - Verano (DST, NY = UTC-4): sesión 13:30–20:00 UTC
+    - Invierno (NY = UTC-5):    sesión 14:30–21:00 UTC
+    No ajusta festivos de la bolsa (días sueltos al año en que estará mal).
     """
     ahora = dt.datetime.utcnow()
     if ahora.weekday() >= 5:   # sábado=5, domingo=6
         return False
     hora_dec = ahora.hour + ahora.minute/60
-    return 14.5 <= hora_dec <= 21.0
+    if _usa_en_horario_verano(ahora):
+        return 13.5 <= hora_dec <= 20.0   # verano
+    return 14.5 <= hora_dec <= 21.0       # invierno
 
 @st.cache_data(ttl=300)
 def precio_token_solana(coingecko_id):
