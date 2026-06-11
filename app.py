@@ -46,11 +46,12 @@ CG = "https://api.coingecko.com/api/v3"
 
 # Acciones vinculadas a BTC, vía sus tokens tokenizados en CoinGecko (sin clave).
 # Cotizan 24/7. MSTRx es líquido; MARAON/RIOTON son ilíquidos (precio orientativo).
+# tramos = [T1,T2,T3] e invalidación, como en las cripto (None si no se definen).
 ACCIONES = [
-    # ticker, coingecko_id, categoria, liquidez ("alta"/"baja")
-    ("MSTR", "microstrategy-xstock",              "Accion_BTC", "alta"),
-    ("MARA", "mara-holdings-ondo-tokenized-stock", "Accion_BTC", "baja"),
-    ("RIOT", "riot-platforms-ondo-tokenized-stock","Accion_BTC", "baja"),
+    # ticker, coingecko_id, categoria, liquidez, tramos, invalidacion
+    ("MSTR", "microstrategy-xstock",              "Accion_BTC", "alta", [115, 105, 92], 82),
+    ("MARA", "mara-holdings-ondo-tokenized-stock", "Accion_BTC", "baja", None, None),
+    ("RIOT", "riot-platforms-ondo-tokenized-stock","Accion_BTC", "baja", None, None),
 ]
 
 # ---------------------------------------------------------------
@@ -290,18 +291,27 @@ st.subheader("📈 Acciones vinculadas a BTC")
 st.caption("Precios vía sus **tokens tokenizados** (xStocks) en CoinGecko, que cotizan "
            "24/7 y siguen a la acción real. MSTRx es líquido y fiable; MARA/RIOT "
            "tokenizados son ilíquidos, así que su precio es orientativo. "
-           "La señal de sobreextensión es informativa, NO una recomendación de operar.")
+           "MSTR lleva tramos DCA (T1/T2/T3) como las cripto; recuerda que es un proxy "
+           "apalancado de BTC y amplifica los movimientos. Nada de esto es recomendación de operar.")
 
 filas_acc = []
-for tk, cg_id, cat, liquidez in ACCIONES:
+for tk, cg_id, cat, liquidez, tramos, inval in ACCIONES:
     precio = cg_precio(cg_id)
     hist = cg_historico(cg_id)
     rsi_v = rsi(hist) if hist else None
     dist_v = dist_media(hist) if hist else None
+    # Señal de tramo DCA si la acción tiene niveles definidos
+    if tramos and inval is not None and precio is not None:
+        senal_dca = senal_tramo(precio, tramos, inval)
+        t1, t2, t3 = tramos
+    else:
+        senal_dca, t1, t2, t3 = "—", None, None, None
     filas_acc.append({
         "Ticker": tk,
         "Precio": precio,
         "Fiabilidad": "✅ Alta" if liquidez == "alta" else "⚠️ Orientativo",
+        "Señal DCA": senal_dca,
+        "T1": t1, "T2": t2, "T3": t3,
         "RSI(14)": rsi_v,
         "% vs media50": dist_v,
         "Sobreextensión": senal_sobreextension(rsi_v, dist_v),
@@ -313,14 +323,19 @@ if dfa["Precio"].notna().any():
         if "Muy" in str(v): return "background-color:#5a1e1e;color:#fff"
         if "Algo" in str(v): return "background-color:#5a4d1e;color:#fff"
         return ""
+    def color_dca(v):
+        if "T3" in str(v) or "T2" in str(v): return "background-color:#1e4620;color:#fff"
+        if "T1" in str(v): return "background-color:#5a4d1e;color:#fff"
+        if "STOP" in str(v): return "background-color:#5a1e1e;color:#fff"
+        return ""
     st.dataframe(
-        dfa.style.map(color_ext, subset=["Sobreextensión"]),
+        dfa.style.map(color_ext, subset=["Sobreextensión"]).map(color_dca, subset=["Señal DCA"]),
         use_container_width=True, hide_index=True,
     )
-    st.caption("**Cómo leerlo:** 🔴 Muy estirado = precio muy por encima de su media "
-               "y RSI alto (sobrecomprado). 🟡 Algo estirado = una de las dos. "
-               "⚪ Normal. Es contexto objetivo, no una orden de ponerse corto: "
-               "los cortos en futuros tienen riesgo de pérdida ilimitada y la decisión es tuya.")
+    st.caption("**Señal DCA** (solo MSTR): 🟡 T1 = primera zona de compra · 🟢 T2/T3 = zonas "
+               "más profundas · 🛑 STOP = bajo invalidación. **Sobreextensión:** 🔴 muy estirado, "
+               "🟡 algo, ⚪ normal. Todo es contexto objetivo, no órdenes de comprar/vender ni de "
+               "ponerse corto. La decisión es tuya.")
 else:
     st.warning("No se pudieron cargar los precios de las acciones ahora mismo "
                "(fallo temporal de CoinGecko). Reintenta en unos minutos.")
