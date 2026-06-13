@@ -7,8 +7,8 @@
   "LINK": "ESPERAR",
   "ONDO": "ESPERAR",
   "QNT": "ESPERAR",
-  "RENDER": "T1",
-  "NEAR": "ESPERAR",
+  "RENDER": "ESPERAR",
+  "NEAR": "T1",
   "AVAX": "T1",
   "ADA": "ESPERAR",
   "DOGE": "ESPERAR"
