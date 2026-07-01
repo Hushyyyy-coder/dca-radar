@@ -4,12 +4,12 @@
   "SOL": "ESPERAR",
   "HYPE": "ESPERAR",
   "TAO": "ESPERAR",
-  "LINK": "T1",
+  "LINK": "ESPERAR",
   "ONDO": "T1",
-  "QNT": "T1",
+  "QNT": "ESPERAR",
   "RENDER": "T1",
   "NEAR": "T1",
   "AVAX": "T1",
   "ADA": "T1",
-  "DOGE": "T1"
+  "DOGE": "T2"
 }
