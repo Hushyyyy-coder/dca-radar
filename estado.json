@@ -2,7 +2,7 @@
   "BTC": "ESPERAR",
   "ETH": "ESPERAR",
   "SOL": "ESPERAR",
-  "HYPE": "ESPERAR",
+  "HYPE": "T1",
   "TAO": "ESPERAR",
   "LINK": "ESPERAR",
   "ONDO": "T1",
@@ -11,5 +11,5 @@
   "NEAR": "T2",
   "AVAX": "T1",
   "ADA": "ESPERAR",
-  "DOGE": "T1"
+  "DOGE": "T2"
 }
