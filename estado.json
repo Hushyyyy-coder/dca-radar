@@ -3,13 +3,13 @@
   "ETH": "ESPERAR",
   "SOL": "ESPERAR",
   "HYPE": "ESPERAR",
-  "TAO": "T1",
+  "TAO": "ESPERAR",
   "LINK": "ESPERAR",
   "ONDO": "T2",
   "QNT": "ESPERAR",
-  "RENDER": "T2",
+  "RENDER": "T1",
   "NEAR": "ESPERAR",
   "AVAX": "T1",
   "ADA": "T1",
-  "DOGE": "STOP"
+  "DOGE": "T3"
 }
